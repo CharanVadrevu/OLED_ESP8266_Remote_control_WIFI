@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP8266 OLED Control</title>
+    <!-- 
+      This is the MQTT.js library. It allows this webpage to talk to 
+      the MQTT broker.
+    -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        /* --- Page Layout & Font --- */
+        body {
+            margin: 0;
+            /* Added bottom padding for footer */
+            padding: 2rem 0 6rem 0; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: white;
+            background-color: #000; /* Use black background for this effect */
+            min-height: 100vh;
+        }
+        
+        /* NEW: Center vignette from LetterGlitch component */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            /* Replicates: bg-[radial-gradient(circle,_rgba(0,0,0,0.8)_0%,_rgba(0,0,0,0)_60%)] */
+            background: radial-gradient(circle, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 60%);
+            z-index: -1; /* On top of canvas, behind content */
+        }
+
+        /* * NEW TECH BACKGROUND CANVAS 
+         * This canvas will be a fixed, full-screen background
+         * and will sit behind all other content.
+        */
+        #tech-background-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2; /* Place it behind the vignette */
+            background-color: #000; /* Black background */
+        }
+
+        /* --- NEW: Download Button --- */
+        #download-button {
+            position: fixed; /* Stays in corner */
+            top: 1rem;
+            right: 1rem;
+            z-index: 100;
+            padding: 0.6rem 1rem;
+            border: none;
+            border-radius: 6px;
+            background-color: #39ff14; /* --- NEON GREEN --- */
+            color: #000; /* --- BLACK TEXT for contrast --- */
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 0 15px 3px rgba(57, 255, 20, 0.6);
+        }
+        
+        #download-button:hover {
+            background-color: #7fff6b; /* Brighter green */
+            box-shadow: 0 0 25px 5px rgba(57, 255, 20, 0.8);
+        }
+
+
+        /* --- Control Card (NEW CSS MERGED) --- */
+        .container {
+            position: relative; /* Keep content above background */
+            z-index: 1;
+            
+            /* --- FROM USER'S .glass-card --- */
+            background: rgba(255, 255, 255, 0.07);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.5),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+                inset 0 0 6px 3px rgba(255, 255, 255, 0.3);
+            overflow: hidden; /* For pseudo-elements */
+            
+            /* --- KEPT FOR COMPACT LAYOUT --- */
+            padding: 1.25rem; /* Even smaller padding */
+            width: 90%;
+            max-width: 450px; /* Narrower card */
+            margin: 2rem auto; 
+        }
+
+        /* --- NEW: Pseudo-elements from .glass-card --- */
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.8),
+                transparent
+            );
+        }
+
+        .container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 100%;
+            background: linear-gradient(
+                180deg,
+                rgba(255, 255, 255, 0.8),
+                transparent,
+                rgba(255, 255, 255, 0.3)
+            );
+        }
+        
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            color: #00dfff; /* --- NEON BLUE --- */
+            font-size: 1.6rem; /* Smaller */
+            margin-bottom: 0.75rem; /* Less space */
+        }
+        
+        /* --- Connection Status Dot --- */
+        #connection-status {
+            width: 10px; /* Smaller */
+            height: 10px; /* Smaller */
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px; /* Less space */
+            background-color: #f39c12; /* Orange (Connecting) */
+            vertical-align: middle;
+            transition: background-color 0.3s ease;
+        }
+        
+        /* --- Connection Status Text --- */
+        #connection-text {
+            text-align: center;
+            font-size: 0.95rem; /* Smaller */
+            font-weight: 500;
+            margin-bottom: 0.75rem; /* Less space */
+            color: #ffffff; /* --- BRIGHT WHITE --- */
+            transition: color 0.3s ease;
+        }
+
+        /* --- OLED Controls --- */
+        .oled-control, .image-control, .command-control {
+            margin-bottom: 0.75rem; /* Less space */
+        }
+        
+        .command-control {
+             margin-top: 0.75rem;
+             margin-bottom: 0; /* No space on last item */
+        }
+
+
+        .oled-control p, .image-control p, .command-control p {
+            margin: 0 0 6px 0; /* Less space */
+            font-weight: 600; /* Bolder */
+            color: #39ff14; /* --- NEON GREEN --- */
+            font-size: 0.9rem; /* Smaller */
+        }
+
+        #oled-text, #media-input {
+            width: 100%;
+            padding: 0.6rem; /* Smaller padding */
+            border-radius: 6px; /* Tighter radius */
+            border: 1px solid #00dfff; /* --- NEON BLUE --- */
+            background-color: #1a2b4a;
+            color: white;
+            font-size: 0.9rem; /* Smaller */
+            box-sizing: border-box; /* Important for padding */
+        }
+        
+        /* --- UPDATED: Style for ALL <select> dropdowns --- */
+        #text-animation, #clock-style, #special-anim-style {
+            width: 100%;
+            padding: 0.6rem;
+            border-radius: 6px;
+            border: 1px solid #00dfff; /* --- NEON BLUE --- */
+            background-color: #1a2b4a;
+            color: white;
+            font-size: 0.9rem;
+            box-sizing: border-box;
+            -webkit-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2300dfff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.6rem center;
+            background-size: 1em;
+            margin-bottom: 8px; /* Space between select and button */
+        }
+        
+        #text-animation:disabled, #clock-style:disabled, #special-anim-style:disabled {
+             opacity: 0.6;
+             cursor: not-allowed;
+             background-color: #5a687c;
+        }
+
+        #oled-text::placeholder {
+            color: rgba(255, 255, 255, 0.4); /* --- LIGHTER PLACEHOLDER --- */
+        }
+        
+        /* --- REMOVED .command-buttons --- */
+
+        /* --- UPDATED: Style for ALL buttons --- */
+        #oled-send, #stream-start, #stream-stop, #image-send-single,
+        #cmd-clock-show, #cmd-anim-start, #cmd-weather-get {
+            padding: 0.6rem 1rem; /* Smaller padding */
+            border: none;
+            border-radius: 6px; /* Tighter radius */
+            background-color: #00dfff; /* --- NEON BLUE --- */
+            color: #000; /* --- BLACK TEXT for contrast --- */
+            font-size: 0.9rem; /* Smaller */
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            width: 100%;
+            margin-top: 10px; /* Space from animations/emoji */
+            box-sizing: border-box;
+            /* Add base shadow for transition */
+            box-shadow: 0 0 0px 0px rgba(0, 223, 255, 0.7);
+        }
+
+        /* --- NEW: Specific margins for new buttons --- */
+        #cmd-clock-show, #cmd-anim-start, #cmd-weather-get {
+            margin-top: 0; /* These are after a select or on their own */
+        }
+        
+        #cmd-weather-get {
+             margin-top: 6px; /* Give it space from its title */
+        }
+
+        /* --- UPDATED: Hover for ALL buttons --- */
+        #oled-send:hover, #stream-start:hover, #stream-stop:hover, #image-send-single:hover,
+        #cmd-clock-show:hover, #cmd-anim-start:hover, #cmd-weather-get:hover {
+            background-color: #33eaff; /* Brighter neon blue on hover */
+            /* Radiated light effect */
+            box-shadow: 0 0 15px 3px rgba(0, 223, 255, 0.6);
+        }
+
+        /* --- UPDATED: Disabled state for ALL buttons --- */
+        #oled-send:disabled, #stream-start:disabled, #stream-stop:disabled, #image-send-single:disabled, #media-input:disabled,
+        #cmd-clock-show:disabled, #cmd-anim-start:disabled, #cmd-weather-get:disabled {
+            cursor: not-allowed;
+            background-color: #5a687c;
+            opacity: 0.6;
+            color: white; /* Make disabled text white */
+        }
+        
+        /* --- UPDATED: Disabled hover for ALL buttons --- */
+        #oled-send:disabled:hover, #stream-start:disabled:hover, #stream-stop:disabled:hover, #image-send-single:disabled:hover,
+        #cmd-clock-show:disabled:hover, #cmd-anim-start:disabled:hover, #cmd-weather-get:disabled:hover {
+            /* Disable glow on disabled buttons */
+            background-color: #5a687c;
+            box-shadow: none;
+            color: white;
+        }
+        
+        hr {
+            border: none;
+            height: 1px;
+            background-color: rgba(255, 255, 255, 0.3); /* Match new border color */
+            margin: 1.0rem 0; /* Less space */
+        }
+
+        /* --- New Video Stream Controls --- */
+        #media-input {
+            background-color: #1a2b4a;
+            padding: 0.4rem; /* Smaller */
+            cursor: pointer;
+        }
+        
+        /* Style the file input button */
+        #media-input::file-selector-button {
+            padding: 0.4rem 0.8rem; /* Smaller */
+            border: none;
+            border-radius: 5px;
+            background-color: #00dfff; /* --- NEON BLUE --- */
+            color: #000; /* --- BLACK TEXT for contrast --- */
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        
+        /* Make disabled file input look right */
+        #media-input:disabled::file-selector-button {
+             background-color: #5a687c;
+             opacity: 0.6;
+             cursor: not-allowed;
+             color: white;
+        }
+
+        /* --- NEW: Dual Preview --- */
+        .preview-container {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-top: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .preview-box {
+            flex: 1;
+        }
+        
+        .preview-box p {
+            margin: 0 0 4px 0 !important;
+            font-size: 0.8rem !important;
+            color: #00dfff !important; /* Neon Blue label */
+            text-align: center;
+        }
+
+        #normal-preview-canvas,
+        #preview-canvas {
+            width: 100%; /* Make canvas responsive */
+            height: auto; /* Maintain aspect ratio */
+            aspect-ratio: 2 / 1; /* 128 / 64 */
+            background-color: #0c1021;
+            border-radius: 6px; /* Tighter radius */
+            display: block;
+            image-rendering: pixelated; /* Sharp pixels */
+        }
+        
+        #normal-preview-canvas {
+             border: 1px dashed #00dfff; /* Neon Blue */
+             image-rendering: auto; /* Color preview can be smooth */
+        }
+        
+        #preview-canvas {
+            border: 1px dashed #39ff14; /* --- NEON GREEN --- */
+        }
+        
+        .media-buttons {
+            display: flex;
+            flex-direction: column; /* Stack buttons */
+            gap: 8px; /* Less space */
+            margin-top: 0.75rem; /* Less space */
+        }
+        
+        #image-send-single {
+            background-color: #33eaff; /* --- LIGHTER NEON BLUE --- */
+            color: #000;
+        }
+        
+        #stream-start {
+            background-color: #39ff14; /* --- NEON GREEN --- */
+            color: #000; /* --- BLACK TEXT for contrast --- */
+        }
+        
+        #stream-stop {
+            background-color: #ff1439; /* --- NEON RED --- */
+            color: white; /* White text for contrast */
+        }
+        
+        /* --- NEW: Text Animation Controls --- */
+        .animation-controls {
+            margin-top: 0.75rem; /* Less space */
+        }
+        .animation-title {
+            margin: 0 0 6px 0 !important; /* Override the default p selector */
+            font-weight: 600 !important;
+            color: #39ff14 !important; /* Neon Green */
+            font-size: 0.9rem !important;
+        }
+        
+        /* --- NEW: Footer --- */
+        footer {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            padding: 1rem;
+            margin-top: 2rem;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 0.9rem;
+        }
+        
+        #footer-link {
+            color: #00dfff; /* Neon Blue */
+            text-decoration: none;
+            font-weight: 600;
+            text-shadow: 0 0 10px rgba(0, 223, 255, 0.7), 0 0 15px rgba(0, 223, 255, 0.5);
+            transition: all 0.2s ease;
+        }
+        
+        #footer-link:hover {
+            color: #33eaff;
+            text-shadow: 0 0 15px rgba(0, 223, 255, 1), 0 0 25px rgba(0, 223, 255, 0.7);
+        }
+
+    </style>
+</head>
+<body>
+
+    <canvas id="tech-background-canvas"></canvas>
+    
+    <!-- NEW: Download Button -->
+    <a id="download-button" href="#" download="oled_esp8266_Control.ino">
+        Download .ino File
+    </a>
+    
+    <video id="video-source" style="display: none;" loop playsinline></video>
+
+    <div class="container">
+        <h1>OLED Control Panel</h1>
+        
+        <p id="connection-text">
+            <span id="connection-status"></span>
+            Connecting to Broker...
+        </p>
+
+        <!-- OLED TEXT SECTION -->
+        <div class="oled-control">
+            <p>OLED Text Control</p>
+            <input type="text" id="oled-text" placeholder="Text to display..." disabled>
+            
+            <div class="animation-controls">
+                <p class="animation-title">Text Animation:</p>
+                <!-- UPDATED Dropdown with new animations -->
+                <select id="text-animation" disabled>
+                    <option value="normal">Static (Normal)</option>
+                    <option value="scroll_h">Scroll Left/Right</option>
+                    <option value="scroll_v">Scroll Up/Down</option>
+                    <option value="blink">Blink</option>
+                    <option value="bounce">Screen Bounce</option>
+                    <option value="zoom">Zoom In/Out</option>
+                    <option value="typing">Typing Effect</option>
+                    <option value="win_screensaver">Windows Screensaver</option>
+                </select>
+            </div>
+            
+            <button id="oled-send" disabled>Send to Screen</button>
+        </div>
+
+        <hr> 
+
+        <!-- UPDATED: Display Commands Section -->
+        <div class="command-control">
+            <p class="animation-title">Clock Display:</p>
+            <select id="clock-style" disabled>
+                <option value="digital">Digital Clock</option>
+                <option value="analog">Analog (Round) Clock</option>
+            </select>
+            <button id="cmd-clock-show" disabled>Show Clock</button>
+        </div>
+
+        <hr> 
+
+        <div class="command-control">
+            <p class="animation-title">Special Animations:</p>
+            <select id="special-anim-style" disabled>
+                <option value="stars">Starfield Animation</option>
+                <option value="galaxy">Galaxy Animation</option>
+                <option value="globe">Rotating Globe</option>
+            </select>
+            <button id="cmd-anim-start" disabled>Start Animation</button>
+        </div>
+
+        <hr> 
+
+        <div class="command-control">
+            <p class="animation-title">Weather Report:</p>
+            <!-- NEW: ID added to button text -->
+            <button id="cmd-weather-get" disabled>
+                <span id="weather-button-text">Get Full Weather Report</span>
+            </button>
+        </div>
+
+        <hr> 
+
+        <!-- MEDIA SECTION -->
+        <div class="image-control">
+            <p>Image & Video/GIF Stream (128x64)</p>
+            <input type="file" id="media-input" accept="image/*,video/*" disabled>
+            
+            <!-- NEW: Dual Preview Container -->
+            <div class="preview-container">
+                <div class="preview-box">
+                    <p>Color Preview:</p>
+                    <canvas id="normal-preview-canvas" width="128" height="64"></canvas>
+                </div>
+                <div class="preview-box">
+                    <p>Monochrome Preview:</p>
+                    <canvas id="preview-canvas" width="128" height="64"></canvas>
+                </div>
+            </div>
+            
+            <div class="media-buttons">
+                <button id="image-send-single" disabled>Send Single Image</button>
+                <button id="stream-start" disabled>Start Stream</button>
+                <button id="stream-stop" disabled>Stop Stream</button>
+            </div>
+        </div>
+
+    </div>
+    
+    <!-- NEW: Footer -->
+    <footer>
+      Created By 
+        <a href="https://www.linkedin.com/in/charan-vadrevu-556377250" 
+           target="_blank" 
+           id="footer-link">Charan Vadrevu</a>
+    </footer>
+    
+    <!-- 
+      This script tag contains the INO file content for the download button.
+      It's hidden from view.
+    -->
+    <script type="text/plain" id="ino-file-content">
+/*
+ * ESP8266 OLED MQTT Control Code
+ *
+ * FULLY FUNCTIONAL VERSION
+ *
+ * This Arduino C++ ('.ino') sketch works with the provided 'ESP8266_control.html' file.
+ *
+ * It connects your ESP8266 (NodeMCU) to Wi-Fi and the public EMQX MQTT broker,
+ * then listens for commands to display text, animations, clocks, and raw images
+ * on a 128x64 OLED display.
+ *
+ *
+ * REQUIRED LIBRARIES (Install via Arduino IDE Library Manager):
+ * 1. U8g2: The most powerful library for monochrome displays. We use this for all drawing.
+ * 2. PubSubClient: The standard library for MQTT communication.
+ * 3. ArduinoJson (Version 6.x): Used to parse the JSON commands sent from the webpage.
+ * 4. NTPClient: To get the current time from the internet for the clock feature.
+ * 5. ESP8266WiFi: (Comes with ESP8266 board support)
+ * 6. ESP8266HTTPClient: (Comes with ESP8266 board support) Used for the weather API.
+ * 7. WiFiUdp: (Comes with ESP8266 board support)
+ *
+ Instruction mamual Steps 
+ 1. First Install All the below libraries 
+ 2. connect 0.96 oled with ESP8266 Node MCU with pins-> D1-SCL,D2-SDA,3v-VCC, G-Gnd
+ 3. next Replace YOUR_WIFI_SSID" & "YOUR_WIFI_PASSWORD" with your own wifi name and its respective password
+ 4. next upload the code to your ESP8266 NODE MCU
+ 5. Finally your OLED is ready to controlled remotly inside your wifi network through website
+ */
+
+// -----------------------------------------------------------------------------
+// --- 1. LIBRARIES ---
+// -----------------------------------------------------------------------------
+
+#include <ESP8266WiFi.h>      // For Wi-Fi
+#include <PubSubClient.h>     // For MQTT
+#include <ArduinoJson.h>      // For parsing JSON commands (v6.x)
+#include <U8g2lib.h>          // For the OLED display
+#include <Wire.h>             // For I2C communication (OLED)
+#include <NTPClient.h>        // For getting internet time
+#include <WiFiUdp.h>          // For NTP
+#include <ESP8266HTTPClient.h> // For Weather API
+#include <WiFiClient.h>       // For Weather API
+#include <math.h>             // For animations
+
+
+// -----------------------------------------------------------------------------
+// --- 2. CONFIGURATION (EDIT THESE) ---
+// -----------------------------------------------------------------------------
+
+// --- Wi-Fi Settings ---
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// --- MQTT Settings (Must match your HTML file) ---
+const char* mqtt_broker = "broker.emqx.io";
+const int mqtt_port = 1883; // Default MQTT port (not WebSocket)
+const char* mqtt_client_id = "esp8266-oled-client-123"; // Make this unique
+
+// --- MQTT Topics (Must match your HTML file) ---
+const char* OLED_SET_TOPIC = "esp8266/oled/set";
+const char* OLED_IMAGE_TOPIC = "esp8266/oled/image";
+const char* ESP_STATUS_TOPIC = "esp8266/status";
+
+// --- OLED Display Setup (U8g2) ---
+// This uses the U8g2 library. Common constructor for 128x64 I2C OLED:
+// NodeMCU default I2C pins: D1 (SCL), D2 (SDA)
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
+
+
+// -----------------------------------------------------------------------------
+// --- 3. GLOBAL VARIABLES & OBJECTS ---
+// -----------------------------------------------------------------------------
+
+// --- Network Objects ---
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// --- Time Objects ---
+WiFiUDP ntpUDP;
+// UPDATE: Set timezone to 0 (UTC). We'll apply offset later if needed.
+// Example: 19800 = GMT+5:30 (India).
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 19800, 60000); 
+
+// --- Display State Machine ---
+enum DisplayMode {
+  MODE_IDLE,
+  MODE_TEXT,
+  MODE_IMAGE,
+  MODE_CLOCK,
+  MODE_SPECIAL_ANIM,
+  MODE_WEATHER
+};
+DisplayMode currentMode = MODE_IDLE;
+
+// --- Buffers ---
+byte imageBuffer[1024]; // 128x64 raw bitmap
+
+String currentText = "Hello!";
+String currentTextAnimation = "normal";
+
+String currentClockStyle = "digital";
+
+String currentSpecialAnim = "stars";
+
+// --- Weather Buffers (NEW) ---
+String weatherTemp = "--";
+String weatherCondition = "Loading...";
+String weatherWind = "--"; // NEW: Add variable for wind speed
+String currentCity = "Berlin"; // Default city
+float currentLat = 52.52;      // Default latitude
+float currentLon = 13.41;      // Default longitude
+
+// --- JSON Parsing Buffers ---
+StaticJsonDocument<256> jsonDoc;
+DynamicJsonDocument weatherDoc(2048);
+
+// --- Animation State Variables (NEW) ---
+unsigned long lastAnimTime = 0;
+int textScrollX = 0;
+int textScrollY = 0;
+int typingIndex = 0;
+float zoomScale = 1.0;
+bool zoomIn = true;
+int bounceX, bounceY, bounceVX, bounceVY, bounceW, bounceH;
+int winX, winY, winVX, winVY, winW, winH;
+
+// Simple starfield animation state
+struct Star {
+  float x, y, z;
+};
+Star stars[50]; // 50 stars
+float animAngle = 0; // For globe/galaxy rotation
+
+
+// -----------------------------------------------------------------------------
+// --- 4. SETUP FUNCTIONS ---
+// -----------------------------------------------------------------------------
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Booting...");
+
+  // Initialize OLED
+  u8g2.begin();
+  u8g2.setFont(u8g2_font_ncenB08_tr); // Set a default font
+  showBootMessage("Connecting...");
+
+  // Initialize Wi-Fi
+  setup_wifi();
+
+  // Initialize Time Client
+  timeClient.begin();
+
+  // Initialize MQTT
+  client.setBufferSize(2048); // Must be > 1024 for images
+  client.setServer(mqtt_broker, mqtt_port);
+  client.setCallback(mqtt_callback);
+
+  // Initialize star positions for animation
+  for (int i = 0; i < 50; i++) {
+    stars[i] = {random(-25, 25), random(-25, 25), random(1, 25)};
+  }
+
+  Serial.println("Setup complete.");
+  currentMode = MODE_IDLE;
+}
+
+void setup_wifi() {
+  delay(10);
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+  int connect_timeout = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    connect_timeout++;
+    if (connect_timeout > 20) { // 10 second timeout
+        showBootMessage("Wi-Fi Failed!");
+        Serial.println("Failed to connect to WiFi. Retrying...");
+        connect_timeout = 0;
+        WiFi.begin(ssid, password);
+    }
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void showBootMessage(String msg) {
+  u8g2.firstPage();
+  do {
+    u8g2.clearBuffer();
+    u8g2.setFont(u8g2_font_ncenB08_tr);
+    u8g2.drawStr(0, 10, "ESP8266 Control");
+    u8g2.drawStr(0, 30, msg.c_str());
+    u8g2.drawHLine(0, 15, 128);
+  } while (u8g2.nextPage());
+}
+
+
+// -----------------------------------------------------------------------------
+// --- 5. MQTT FUNCTIONS ---
+// -----------------------------------------------------------------------------
+
+void reconnect_mqtt() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    showBootMessage("MQTT Connect...");
+
+    // Set the "Last Will and Testament" (LWT)
+    // Arguments are: id, user, pass, willTopic, willQos, willRetain, willMessage, cleanSession
+    if (client.connect(mqtt_client_id, NULL, NULL, ESP_STATUS_TOPIC, 0, true, "Offline", true)) {
+      Serial.println("connected");
+      showBootMessage("MQTT Ready!");
+      delay(1000);
+
+      // --- Subscriptions ---
+      client.subscribe(OLED_SET_TOPIC);
+      Serial.print("Subscribed to: "); Serial.println(OLED_SET_TOPIC);
+      client.subscribe(OLED_IMAGE_TOPIC);
+      Serial.print("Subscribed to: "); Serial.println(OLED_IMAGE_TOPIC);
+
+      // --- Publish Status ---
+      client.publish(ESP_STATUS_TOPIC, "Online", true); // true = retained
+
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      showBootMessage("MQTT Failed!");
+      delay(5000);
+    }
+  }
+}
+
+/**
+ * @brief Resets all animation variables to default states.
+ */
+void resetAnimationState() {
+  u8g2.setFont(u8g2_font_ncenB10_tr); // Reset font
+  // u8g2.setFontScale(1); // Reset zoom <-- REMOVED, this was the error
+  
+  textScrollX = u8g2.getDisplayWidth();
+  textScrollY = u8g2.getDisplayHeight() + 10;
+  typingIndex = 0;
+  zoomScale = 1.0;
+  zoomIn = true;
+  lastAnimTime = millis();
+  
+  // Center text for bounce/screensaver
+  int textWidth = u8g2.getStrWidth(currentText.c_str());
+  int textHeight = 10; // Approx height
+  
+  bounceX = (u8g2.getDisplayWidth() - textWidth) / 2;
+  bounceY = (u8g2.getDisplayHeight() - textHeight) / 2;
+  bounceVX = 1; // 1 pixel per frame
+  bounceVY = 1;
+  bounceW = textWidth;
+  bounceH = textHeight;
+
+  // Windows screensaver starts in a corner
+  winX = 5;
+  winY = 15;
+  winVX = 1;
+  winVY = 1;
+  winW = textWidth;
+  winH = textHeight;
+}
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.println("]");
+
+  // --- Handle Raw Image/Video Frame ---
+  if (strcmp(topic, OLED_IMAGE_TOPIC) == 0) {
+    currentMode = MODE_IMAGE;
+    if (length == 1024) {
+      memcpy(imageBuffer, payload, 1024);
+    } else {
+      Serial.print("Incorrect image payload size: ");
+      Serial.println(length);
+    }
+  }
+
+  // --- Handle JSON Commands ---
+  if (strcmp(topic, OLED_SET_TOPIC) == 0) {
+    DeserializationError error = deserializeJson(jsonDoc, payload, length);
+
+    if (error) {
+      Serial.print("deserializeJson() failed: ");
+      Serial.println(error.c_str());
+      return;
+    }
+
+    // --- Parse Text Command ---
+    if (jsonDoc.containsKey("text")) {
+      currentMode = MODE_TEXT;
+      currentText = jsonDoc["text"].as<String>();
+      currentTextAnimation = jsonDoc["animation"].as<String>();
+      
+      // NEW: Reset animation state for new text
+      resetAnimationState();
+      
+      Serial.print("Set text: "); Serial.println(currentText);
+      Serial.print("Set anim: "); Serial.println(currentTextAnimation);
+    }
+
+    // --- Parse Other Commands ---
+    else if (jsonDoc.containsKey("command")) {
+      String command = jsonDoc["command"].as<String>();
+
+      // Clock Command
+      if (command == "show_clock") {
+        currentMode = MODE_CLOCK;
+        currentClockStyle = jsonDoc["style"].as<String>();
+        Serial.print("Set clock style: "); Serial.println(currentClockStyle);
+      }
+      // Special Animation Command
+      else if (command == "anim_special") {
+        currentMode = MODE_SPECIAL_ANIM;
+        currentSpecialAnim = jsonDoc["style"].as<String>();
+        animAngle = 0; // Reset animation angle
+        Serial.print("Set special anim: "); Serial.println(currentSpecialAnim);
+      }
+      // Weather Command (NEW: Updated to parse location)
+      else if (command == "get_weather") {
+        currentMode = MODE_WEATHER;
+        weatherCondition = "Fetching...";
+        weatherTemp = "--";
+        weatherWind = "--"; // NEW: Reset wind variable
+        
+        // Check if new data is provided, otherwise use old (default) data
+        if (jsonDoc.containsKey("lat")) {
+            currentLat = jsonDoc["lat"].as<float>();
+            currentLon = jsonDoc["lon"].as<float>();
+            currentCity = jsonDoc["city"].as<String>();
+            Serial.print("Got location: "); Serial.println(currentCity);
+        } else {
+            Serial.println("No location data, using default.");
+        }
+        
+        Serial.println("Fetching weather...");
+        fetchWeather(); // Go get the weather data
+      }
+    }
+  }
+}
+
+
+// -----------------------------------------------------------------------------
+// --- 6. CORE LOOP ---
+// -----------------------------------------------------------------------------
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi Disconnected. Reconnecting...");
+    setup_wifi();
+  }
+
+  if (!client.connected()) {
+    reconnect_mqtt();
+  }
+  client.loop();
+
+  timeClient.update();
+
+  // --- Main Display Loop (U8g2) ---
+  u8g2.firstPage();
+  do {
+    // Call the correct drawing function based on the current mode
+    switch (currentMode) {
+      case MODE_IDLE:
+        drawIdleScreen();
+        break;
+      case MODE_TEXT:
+        drawText();
+        break;
+      case MODE_IMAGE:
+        drawImage();
+        break;
+      case MODE_CLOCK:
+        drawClock();
+        break;
+      case MODE_SPECIAL_ANIM:
+        drawSpecialAnim();
+        break;
+      case MODE_WEATHER:
+        drawWeather();
+        break;
+    }
+  } while (u8g2.nextPage());
+}
+
+
+// -----------------------------------------------------------------------------
+// --- 7. DRAWING FUNCTIONS ---
+// -----------------------------------------------------------------------------
+
+void drawImage() {
+  u8g2.drawXBM(0, 0, 128, 64, imageBuffer);
+}
+
+void drawIdleScreen() {
+  u8g2.setFont(u8g2_font_ncenB10_tr);
+  u8g2.drawStr(30, 35, "IDLE Mode");
+  u8g2.drawHLine(0, 40, 128);
+  u8g2.setFont(u8g2_font_ncenB08_tr);
+  u8g2.drawStr(5, 55, "Waiting for command...");
+}
+
+/**
+ * @brief Draws the text with the selected animation (NEW: All anims added)
+ */
+void drawText() {
+  u8g2.setFont(u8g2_font_ncenB10_tr);
+  // u8g2.setFontScale(1); // Reset scale <-- REMOVED, this was the error
+  long animTime = millis();
+
+  // --- Static (Normal) ---
+  if (currentTextAnimation == "normal") {
+    u8g2.setCursor(0, 15);
+    u8g2.print(currentText.c_str());
+  }
+
+  // --- Scroll Left/Right ---
+  else if (currentTextAnimation == "scroll_h") {
+    int textWidth = u8g2.getStrWidth(currentText.c_str());
+    u8g2.drawStr(textScrollX, 35, currentText.c_str());
+
+    if (animTime - lastAnimTime > 25) { // Faster scroll
+      textScrollX--;
+      if (textScrollX < -textWidth) {
+        textScrollX = u8g2.getDisplayWidth();
+      }
+      lastAnimTime = animTime;
+    }
+  }
+  
+  // --- Scroll Up/Down (NEW) ---
+  else if (currentTextAnimation == "scroll_v") {
+    u8g2.drawStr(5, textScrollY, currentText.c_str());
+    if (animTime - lastAnimTime > 25) {
+      textScrollY--;
+      if (textScrollY < 0) { // Reset when off top
+        textScrollY = u8g2.getDisplayHeight() + 10;
+      }
+      lastAnimTime = animTime;
+    }
+  }
+
+  // --- Blink ---
+  else if (currentTextAnimation == "blink") {
+    if ((millis() / 500) % 2 == 0) {
+      u8g2.setCursor(0, 15);
+      u8g2.print(currentText.c_str());
+    }
+  }
+  
+  // --- Screen Bounce (NEW) ---
+  else if (currentTextAnimation == "bounce") {
+    if (animTime - lastAnimTime > 15) {
+      bounceX += bounceVX;
+      bounceY += bounceVY;
+
+      if (bounceX <= 0 || bounceX + bounceW >= u8g2.getDisplayWidth()) {
+        bounceVX = -bounceVX; // Reverse X
+      }
+      if (bounceY - bounceH/2 <= 0 || bounceY + bounceH/2 >= u8g2.getDisplayHeight()) {
+        bounceVY = -bounceVY; // Reverse Y
+      }
+      lastAnimTime = animTime;
+    }
+    u8g2.drawStr(bounceX, bounceY, currentText.c_str());
+  }
+  
+  // --- Zoom In/Out (NEW) ---
+  else if (currentTextAnimation == "zoom") {
+    if (animTime - lastAnimTime > 400) { // Slower zoom toggle
+      zoomIn = !zoomIn; // Just toggle between two states
+      lastAnimTime = animTime;
+    }
+
+    // We use the default u8g2_font_ncenB10_tr as "zoomed out"
+    if (zoomIn) {
+      // "Zoomed in" - use a larger font
+      u8g2.setFont(u8g2_font_ncenB14_tr); 
+    }
+    
+    // Adjust x/y to keep it centered
+    int scaledWidth = u8g2.getStrWidth(currentText.c_str());
+    u8g2.drawStr((u8g2.getDisplayWidth() - scaledWidth) / 2, 35, currentText.c_str());
+  }
+
+  // --- Typing Effect (NEW) ---
+  else if (currentTextAnimation == "typing") {
+    if (animTime - lastAnimTime > 80) { // Speed of typing
+      typingIndex++;
+      if (typingIndex > currentText.length()) {
+        typingIndex = 0; // Loop
+      }
+      lastAnimTime = animTime;
+    }
+    // Show cursor
+    String textToShow = currentText.substring(0, typingIndex);
+    int textWidth = u8g2.getStrWidth(textToShow.c_str());
+    u8g2.drawStr(5, 35, textToShow.c_str());
+    // Blink cursor
+    if ((millis() / 300) % 2 == 0) {
+       u8g2.drawBox(5 + textWidth, 25, 2, 10);
+    }
+  }
+  
+  // --- Windows Screensaver (NEW) ---
+  else if (currentTextAnimation == "win_screensaver") {
+    if (animTime - lastAnimTime > 15) {
+      winX += winVX;
+      winY += winVY;
+
+      if (winX <= 0 || winX + winW >= u8g2.getDisplayWidth()) {
+        winVX = -winVX; // Reverse X
+      }
+      if (winY - winH/2 <= 0 || winY + winH/2 >= u8g2.getDisplayHeight()) {
+        winVY = -winVY; // Reverse Y
+      }
+      lastAnimTime = animTime;
+    }
+    u8g2.drawStr(winX, winY, currentText.c_str());
+  }
+
+  // --- Fallback ---
+  else {
+    u8g2.setCursor(0, 15);
+    u8g2.print(currentText.c_str());
+  }
+}
+
+void drawClock() {
+  String formattedTime = timeClient.getFormattedTime();
+  int hours = timeClient.getHours();
+  int minutes = timeClient.getMinutes();
+  int seconds = timeClient.getSeconds();
+
+  if (currentClockStyle == "digital") {
+    u8g2.setFont(u8g2_font_logisoso24_tr);
+    u8g2.drawStr(20, 40, formattedTime.c_str());
+  }
+  else if (currentClockStyle == "analog") {
+    int centerX = 64;
+    int centerY = 32;
+    int radius = 30;
+
+    u8g2.drawCircle(centerX, centerY, radius); // Clock face
+
+    // Hour hand
+    float hour_angle = (hours % 12 + minutes / 60.0) * 30;
+    u8g2.drawLine(centerX, centerY,
+                  centerX + 15 * sin(hour_angle * 3.14159 / 180),
+                  centerY - 15 * cos(hour_angle * 3.14159 / 180));
+    // Minute hand
+    float min_angle = minutes * 6;
+    u8g2.drawLine(centerX, centerY,
+                  centerX + 25 * sin(min_angle * 3.14159 / 180),
+                  centerY - 25 * cos(min_angle * 3.14159 / 180));
+    // Second hand
+    float sec_angle = seconds * 6;
+    u8g2.drawLine(centerX, centerY,
+                  centerX + 28 * sin(sec_angle * 3.14159 / 180),
+                  centerY - 28 * cos(sec_angle * 3.14159 / 180));
+  }
+}
+
+/**
+ * @brief Draws the special animations (NEW: All anims added)
+ */
+void drawSpecialAnim() {
+  long animTime = millis();
+  if (animTime - lastAnimTime > 25) {
+     animAngle += 0.02; // Update animation angle
+     lastAnimTime = animTime;
+  }
+  
+  if (currentSpecialAnim == "stars") {
+    // Basic 3D starfield logic
+    for (int i = 0; i < 50; i++) {
+      stars[i].z -= 0.1;
+      if (stars[i].z <= 0) {
+        stars[i] = {random(-25, 25), random(-25, 25), random(1, 25)};
+      }
+      int x = (stars[i].x / stars[i].z) * 50 + 64;
+      int y = (stars[i].y / stars[i].z) * 50 + 32;
+      if (x > 0 && x < 128 && y > 0 && y < 64) {
+        u8g2.drawPixel(x, y);
+      }
+    }
+  }
+  else if (currentSpecialAnim == "galaxy") {
+    // Simple rotating galaxy
+    int centerX = 64;
+    int centerY = 32;
+    for (int i = 0; i < 50; i++) {
+      // Use star 'z' as distance and 'x' as angle
+      float r = stars[i].z * 1.2; // distance
+      float a = stars[i].x + animAngle; // angle
+      int x = centerX + r * cos(a);
+      int y = centerY + r * sin(a);
+      u8g2.drawPixel(x,y);
+    }
+  }
+  else if (currentSpecialAnim == "globe") {
+    // Simple wireframe globe
+    int centerX = 64;
+    int centerY = 32;
+    int radius = 28;
+    u8g2.drawCircle(centerX, centerY, radius); // Outline
+
+    // Draw longitude lines (ellipses)
+    for (int i = -2; i <= 2; i++) {
+      float offset = i * 10;
+      u8g2.drawEllipse(centerX, centerY, abs(cos(animAngle + offset)) * radius, radius);
+    }
+    // Draw latitude line (horizontal)
+    float latY = sin(animAngle) * radius * 0.5;
+    u8g2.drawEllipse(centerX, centerY + latY, radius, abs(cos(animAngle)) * 8);
+  }
+}
+
+/**
+ * @brief Draws the weather information (NEW: Updated for dynamic location)
+ */
+void drawWeather() {
+  u8g2.setFont(u8g2_font_ncenB10_tr); // Use a 10px high font
+  
+  // Draw the city, wrap if too long
+  u8g2.setCursor(0, 12); // Move to top
+  u8g2.print(currentCity.c_str());
+  
+  u8g2.drawHLine(0, 15, 128); // Line underneath
+
+  // Draw Temperature (Smaller font now)
+  u8g2.setFont(u8g2_font_ncenB10_tr);
+  u8g2.drawStr(0, 30, (weatherTemp + " C").c_str());
+
+  // Draw Wind Speed (NEW)
+  u8g2.drawStr(64, 30, (weatherWind + " km/h").c_str()); // Draw on the right side
+
+  // Draw Condition (now at bottom)
+  u8g2.setFont(u8g2_font_ncenB10_tr); // Use 10px font
+  int textWidth = u8g2.getStrWidth(weatherCondition.c_str());
+  u8g2.drawStr((u8g2.getDisplayWidth() - textWidth) / 2, 50, weatherCondition.c_str());
+}
+
+/**
+ * @brief Fetches weather from Open-Meteo API (NEW: Updated for dynamic location)
+ */
+void fetchWeather() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    WiFiClient client; // Use non-secure client
+
+    // Build the URL dynamically
+    char api_url[200];
+    sprintf(api_url, "http://api.open-meteo.com/v1/forecast?latitude=%.2f&longitude=%.2f&current_weather=true", currentLat, currentLon);
+
+    Serial.print("Weather URL: ");
+    Serial.println(api_url);
+
+    if (http.begin(client, api_url)) {
+      int httpCode = http.GET();
+
+      if (httpCode > 0) {
+        if (httpCode == HTTP_CODE_OK) {
+          String payload = http.getString();
+          Serial.println("Weather Payload:");
+          Serial.println(payload);
+
+          // Parse the JSON
+          DeserializationError error = deserializeJson(weatherDoc, payload);
+          if (error) {
+            Serial.print("Weather JSON parse failed: ");
+            Serial.println(error.c_str());
+            weatherCondition = "JSON Err";
+            return;
+          }
+
+          // Extract values
+          float temp = weatherDoc["current_weather"]["temperature"];
+          int code = weatherDoc["current_weather"]["weathercode"];
+          float wind = weatherDoc["current_weather"]["windspeed"]; // NEW
+
+          weatherTemp = String(temp, 1); // 1 decimal place
+          weatherWind = String(wind, 1); // NEW: 1 decimal place
+          weatherCondition = weatherCodeToString(code);
+
+          Serial.print("Temp: "); Serial.println(weatherTemp);
+          Serial.print("Cond: "); Serial.println(weatherCondition);
+          Serial.print("Wind: "); Serial.println(weatherWind); // NEW
+
+        }
+      } else {
+        Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+        weatherCondition = "HTTP Err";
+      }
+      http.end();
+    } else {
+      Serial.printf("[HTTP] Unable to connect\n");
+      weatherCondition = "Connect Err";
+    }
+  } else {
+    Serial.println("WiFi not connected, can't get weather.");
+    weatherCondition = "No WiFi";
+  }
+}
+
+/**
+ * @brief Helper to convert Open-Meteo weather codes to strings.
+ */
+String weatherCodeToString(int code) {
+  switch (code) {
+    case 0: return "Clear";
+    case 1: return "Mainly Clear";
+    case 2: return "Partly Cloudy";
+    case 3: return "Overcast";
+    case 45: return "Fog";
+    case 48: return "Rime Fog";
+    case 51: return "Drizzle";
+    case 53: return "Drizzle";
+    case 55: return "Drizzle";
+    case 61: return "Rain";
+    case 63: return "Rain";
+    case 65: return "Rain";
+    case 71: return "Snow";
+    case 73: "Snow";
+    case 75: "Snow";
+    case 80: "Showers";
+    case 81: "Showers";
+    case 82: "Showers";
+    case 95: "T-Storm";
+    default: return "N/A";
+  }
+}
+</script>
+    
+    <script>
+        // --- NEW: Download Button Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                // 1. Get the .ino file content from the script tag
+                const inoContent = document.getElementById('ino-file-content').textContent.trim();
+                
+                // 2. Create a Blob (a file-like object in memory)
+                const blob = new Blob([inoContent], { type: 'text/plain' });
+                
+                // 3. Create a URL for the Blob
+                const fileURL = URL.createObjectURL(blob);
+                
+                // 4. Find the download button
+                const downloadButton = document.getElementById('download-button');
+                
+                // 5. Set the button's href to the new URL
+                if (downloadButton) {
+                    downloadButton.href = fileURL;
+                } else {
+                    console.error("Download button not found!");
+                }
+            } catch (error) {
+                console.error("Error setting up download link:", error);
+                const downloadButton = document.getElementById('download-button');
+                if (downloadButton) {
+                    downloadButton.textContent = "Error";
+                    downloadButton.style.backgroundColor = "#ff1439"; // Neon red
+                    downloadButton.style.cursor = "not-allowed";
+                    downloadButton.href = "#";
+                    downloadButton.onclick = (e) => e.preventDefault();
+                }
+            }
+            
+            // --- The rest of your existing script ---
+            setupMQTT();
+            setupTechBackground();
+        });
+    
+        // --- Encapsulate existing scripts into functions ---
+        
+        function setupMQTT() {
+            // --- 1. CONFIGURATION ---
+            const BROKER_URL = 'wss://broker.emqx.io:8084/mqtt'; 
+            const OLED_SET_TOPIC = 'esp8266/oled/set';
+            const OLED_IMAGE_TOPIC = 'esp8266/oled/image';
+            const ESP_STATUS_TOPIC = 'esp8266/status'; 
+            const FRAME_RATE = 10; // Send 10 frames per second
+
+            // --- 2. GET HTML ELEMENTS ---
+            const connectionDot = document.getElementById('connection-status');
+            const connectionText = document.getElementById('connection-text');
+            
+            // Text controls
+            const oledTextInput = document.getElementById('oled-text');
+            const oledSendButton = document.getElementById('oled-send');
+            const textAnimationSelect = document.getElementById('text-animation');
+            
+            // NEW: Command elements
+            const clockStyleSelect = document.getElementById('clock-style');
+            const cmdClockButton = document.getElementById('cmd-clock-show');
+            const specialAnimSelect = document.getElementById('special-anim-style');
+            const cmdAnimButton = document.getElementById('cmd-anim-start');
+            const cmdWeatherButton = document.getElementById('cmd-weather-get');
+            const weatherButtonText = document.getElementById('weather-button-text'); // NEW
+            
+            // Media controls
+            const mediaInput = document.getElementById('media-input');
+            const videoSource = document.getElementById('video-source');
+            
+            // NEW: Dual Previews
+            const normalPreviewCanvas = document.getElementById('normal-preview-canvas');
+            const normalPreviewCtx = normalPreviewCanvas.getContext('2d');
+            const previewCanvas = document.getElementById('preview-canvas');
+            const previewCtx = previewCanvas.getContext('2d');
+            
+            const imageSendSingleButton = document.getElementById('image-send-single');
+            const streamStartButton = document.getElementById('stream-start');
+            const streamStopButton = document.getElementById('stream-stop');
+            
+            // State variables
+            let streamInterval = null;
+            let processedBitmap = null;
+            let espOnline = false;
+            let brokerConnected = false;
+            let statusTimeout = null; 
+
+            // --- 3. CONNECT TO MQTT BROKER ---
+            const client = mqtt.connect(BROKER_URL);
+
+            client.on('connect', () => {
+                console.log('Connected to MQTT broker');
+                brokerConnected = true;
+                
+                // Enable controls
+                oledSendButton.disabled = false;
+                oledTextInput.disabled = false;
+                textAnimationSelect.disabled = false;
+                mediaInput.disabled = false;
+                
+                // NEW: Enable new controls
+                clockStyleSelect.disabled = false;
+                cmdClockButton.disabled = false;
+                specialAnimSelect.disabled = false;
+                cmdAnimButton.disabled = false;
+                cmdWeatherButton.disabled = false;
+                
+                showStatusMessage("Waiting for ESP8266...", 'orange');
+
+                client.subscribe(ESP_STATUS_TOPIC, (err) => {
+                    if (err) {
+                        console.error("Failed to subscribe to status topic:", err);
+                        showStatusMessage("Subscription Error", 'red');
+                    } else {
+                        console.log("Subscribed to ESP8266 status topic.");
+                    }
+                });
+            });
+
+            // --- 4. HANDLE INCOMING MESSAGES ---
+            client.on('message', (topic, message) => {
+                if (topic === ESP_STATUS_TOPIC) {
+                    const status = message.toString();
+                    if (status === 'Online') {
+                        handleEspOnline();
+                    } else if (status === 'Offline') {
+                        handleEspOffline();
+                    }
+                }
+            });
+            
+            function handleEspOnline() {
+                console.log("ESP8266 is ONLINE");
+                espOnline = true;
+                showStatusMessage("ESP8266 Connected", 'green');
+            }
+            
+            function handleEspOffline() {
+                console.warn("ESP8266 is OFFLINE");
+                espOnline = false;
+                if (brokerConnected) {
+                    showStatusMessage("ESP8266 Disconnected", 'red');
+                }
+                if(streamInterval) streamStopButton.click();
+            }
+            
+            // --- 5. HELPER FUNCTIONS ---
+            function showTempMessage(message, color) {
+                if (statusTimeout) clearTimeout(statusTimeout);
+                showStatusMessage(message, color);
+                statusTimeout = setTimeout(() => {
+                    if (espOnline) {
+                        showStatusMessage("ESP8266 Connected", 'green');
+                    } else if (brokerConnected) {
+                        showStatusMessage("Waiting for ESP8266...", 'orange');
+                    } else {
+                        showStatusMessage("Broker Disconnected", 'red');
+                    }
+                }, 2000);
+            }
+            
+            function showStatusMessage(message, color) {
+                let dotColor = '#f39c12'; // orange
+                if (color === 'green') dotColor = '#2ecc71';
+                if (color === 'red') dotColor = '#e74c3c';
+                
+                connectionDot.style.backgroundColor = dotColor;
+                connectionText.innerHTML = `<span id="connection-status" style="background-color: ${dotColor};"></span>${message}`;
+            }
+            
+            function disableAllControls() {
+                if (streamInterval) {
+                    clearInterval(streamInterval);
+                    streamInterval = null;
+                }
+                oledSendButton.disabled = true;
+                oledTextInput.disabled = true;
+                textAnimationSelect.disabled = true;
+                mediaInput.disabled = true;
+                streamStartButton.disabled = true;
+                streamStopButton.disabled = true;
+                imageSendSingleButton.disabled = true;
+                
+                // NEW: Disable new controls
+                clockStyleSelect.disabled = true;
+                cmdClockButton.disabled = true;
+                specialAnimSelect.disabled = true;
+                cmdAnimButton.disabled = true;
+                cmdWeatherButton.disabled = true;
+            }
+
+            // --- 6. HANDLE BUTTON CLICKS ---
+            
+            // Send Text Button
+            oledSendButton.addEventListener('click', () => {
+                if (!espOnline) {
+                    showTempMessage("Error: ESP8266 is Offline", 'red');
+                    return;
+                }
+                
+                const textToSend = oledTextInput.value;
+                const selectedAnimation = textAnimationSelect.value;
+                
+                if (textToSend && textToSend.length > 0) {
+                    const payload = JSON.stringify({
+                        text: textToSend,
+                        animation: selectedAnimation
+                    });
+                    
+                    client.publish(OLED_SET_TOPIC, payload);
+                    console.log(`Published text payload: ${payload}`);
+                    showTempMessage("Text Sent Successfully!", 'green');
+                    
+                } else {
+                    showTempMessage("Error: Text is empty", 'red');
+                }
+            });
+            
+            // --- NEW: Refactored Command Button Clicks ---
+            
+            /**
+             * Sends a JSON command to the ESP8266.
+             * @param {string} commandName The base command (e.g., "show_clock")
+             * @param {object} [options={}] Optional extra data, like { style: "analog" }
+             */
+            function sendCommand(commandName, options = {}) {
+                if (!espOnline) {
+                    showTempMessage("Error: ESP8266 is Offline", 'red');
+                    return;
+                }
+                
+                // Start with the base command
+                let payloadObject = { command: commandName };
+                
+                // Merge in any extra options
+                Object.assign(payloadObject, options); 
+                
+                const payload = JSON.stringify(payloadObject);
+                client.publish(OLED_SET_TOPIC, payload);
+                console.log(`Published command: ${payload}`);
+                showTempMessage("Command Sent!", 'green');
+            }
+            
+            // NEW Event Listeners
+            cmdClockButton.addEventListener('click', () => {
+                const style = clockStyleSelect.value;
+                sendCommand('show_clock', { style: style });
+            });
+            
+            cmdAnimButton.addEventListener('click', () => {
+                const style = specialAnimSelect.value;
+                sendCommand('anim_special', { style: style });
+            });
+            
+            // --- WEATHER BUTTON (NEWLY UPDATED) ---
+            cmdWeatherButton.addEventListener('click', () => {
+                if (!espOnline) {
+                    showTempMessage("Error: ESP8266 is Offline", 'red');
+                    return;
+                }
+                
+                weatherButtonText.textContent = "Getting Location...";
+                cmdWeatherButton.disabled = true;
+                
+                if ("geolocation" in navigator) {
+                    navigator.geolocation.getCurrentPosition(geolocationSuccess, geolocationError, {
+                        enableHighAccuracy: false,
+                        timeout: 10000
+                    });
+                } else {
+                    showTempMessage("Geolocation not available", 'red');
+                    sendWeatherFallback();
+                }
+            });
+            
+            async function geolocationSuccess(position) {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                
+                weatherButtonText.textContent = "Getting City...";
+                
+                try {
+                    // Use a free reverse geocoder
+                    const response = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
+                    const data = await response.json();
+                    
+                    const city = data.city || data.locality || "Unknown Area";
+                    
+                    // Send the full data to ESP8266
+                    sendCommand('get_weather', {
+                        city: city,
+                        lat: lat,
+                        lon: lon
+                    });
+                    
+                } catch (err) {
+                    console.error("Reverse geocoding failed:", err);
+                    showTempMessage("Error getting city", 'red');
+                    // Send with coordinates but no city
+                    sendCommand('get_weather', {
+                        city: "N/A",
+                        lat: lat,
+                        lon: lon
+                    });
+                } finally {
+                    weatherButtonText.textContent = "Get Full Weather Report";
+                    cmdWeatherButton.disabled = false;
+                }
+            }
+
+            function geolocationError(error) {
+                 console.warn(`Geolocation error (${error.code}): ${error.message}`);
+                 showTempMessage("Location error", 'red');
+                 sendWeatherFallback();
+            }
+            
+            function sendWeatherFallback() {
+                // Fallback to Berlin (as in original code)
+                 sendCommand('get_weather', {
+                    city: "Berlin",
+                    lat: 52.52,
+                    lon: 13.41
+                 });
+                 weatherButtonText.textContent = "Get Full Weather Report";
+                 cmdWeatherButton.disabled = false;
+            }
+            // --- END OF WEATHER ---
+            
+
+            // Send Single Image Button
+            imageSendSingleButton.addEventListener('click', () => {
+                if (!espOnline) {
+                    showTempMessage("Error: ESP8266 is Offline", 'red');
+                    return;
+                }
+                if (processedBitmap && client.connected) {
+                    client.publish(OLED_IMAGE_TOPIC, processedBitmap);
+                    console.log(`Published single ${processedBitmap.length} byte image.`);
+                    showTempMessage("Image Sent Successfully!", 'green');
+                } else {
+                    showTempMessage("Error: No image selected", 'red');
+                }
+            });
+
+            // Stream Start Button
+            streamStartButton.addEventListener('click', () => {
+                if (!espOnline) {
+                    showTempMessage("Error: ESP8266 is Offline", 'red');
+                    return;
+                }
+                if (!videoSource.src) {
+                    showTempMessage("Error: No video selected", 'red');
+                    return;
+                }
+                
+                videoSource.currentTime = 0;
+                const playPromise = videoSource.play();
+
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        console.log("Video stream started.");
+                        showStatusMessage("Streaming... (Click Stop to End)", 'green');
+                        if (streamInterval) clearInterval(streamInterval);
+                        streamInterval = setInterval(sendVideoFrame, 1000 / FRAME_RATE);
+                        
+                        streamStartButton.disabled = true;
+                        streamStopButton.disabled = false;
+                    }).catch(error => {
+                        console.error("Error starting video playback:", error);
+                        showStatusMessage("Unsupported video file", 'red');
+                    });
+                }
+            });
+            
+            // Stream Stop Button
+            streamStopButton.addEventListener('click', () => {
+                if (streamInterval) {
+                    clearInterval(streamInterval);
+                    streamInterval = null;
+                }
+                videoSource.pause();
+                
+                if (espOnline) {
+                     showStatusMessage("ESP8266 Connected", 'green');
+                } else {
+                     showStatusMessage("ESP8266 Disconnected", 'red');
+                }
+                
+                const file = mediaInput.files[0];
+                if (file && (file.type.startsWith('video/') || file.type === 'image/gif')) {
+                     streamStartButton.disabled = false;
+                }
+                streamStopButton.disabled = true;
+            });
+            
+            // --- 7. MEDIA FILE PROCESSING (Updated for Dual Preview) ---
+            
+            mediaInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                if (streamInterval) {
+                    clearInterval(streamInterval);
+                    streamInterval = null;
+                }
+                videoSource.pause();
+                processedBitmap = null;
+                
+                imageSendSingleButton.disabled = true;
+                streamStartButton.disabled = true;
+                streamStopButton.disabled = true;
+                
+                // Clear previews
+                normalPreviewCtx.clearRect(0, 0, 128, 64);
+                previewCtx.clearRect(0, 0, 128, 64);
+
+                const fileURL = URL.createObjectURL(file);
+
+                if (file.type.startsWith('video/') || file.type === 'image/gif') {
+                    videoSource.src = fileURL;
+                    streamStartButton.disabled = false;
+                    // Draw first frame to color preview
+                    videoSource.addEventListener('loadeddata', () => {
+                         normalPreviewCtx.drawImage(videoSource, 0, 0, 128, 64);
+                         // Also draw to mono preview canvas (to be processed)
+                         previewCtx.drawImage(videoSource, 0, 0, 128, 64);
+                         drawMonochromePreview(processCanvasToBitmap());
+                    }, { once: true });
+                
+                } else if (file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            // NEW: Draw to color preview
+                            normalPreviewCtx.drawImage(img, 0, 0, 128, 64);
+                            
+                            // Draw to processing canvas (hidden, but we use its context)
+                            previewCtx.drawImage(img, 0, 0, 128, 64);
+                            
+                            processedBitmap = processCanvasToBitmap();
+                            drawMonochromePreview(processedBitmap); // Update mono preview
+                            
+                            imageSendSingleButton.disabled = false;
+                        };
+                        img.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            function sendVideoFrame() {
+                if (!espOnline) {
+                    streamStopButton.click();
+                    showTempMessage("Error: ESP8266 Disconnected", 'red');
+                    return;
+                }
+                if (videoSource.paused || videoSource.ended) {
+                    streamStopButton.click();
+                    return;
+                }
+                
+                // NEW: Draw to color preview
+                normalPreviewCtx.drawImage(videoSource, 0, 0, 128, 64);
+                
+                // Draw to processing canvas
+                previewCtx.drawImage(videoSource, 0, 0, 128, 64);
+                
+                const bitmap = processCanvasToBitmap();
+                
+                if (client.connected) {
+                    client.publish(OLED_IMAGE_TOPIC, bitmap);
+                }
+                
+                // Update monochrome preview
+                drawMonochromePreview(bitmap);
+            }
+
+            // Helper function to process the canvas to a 1024-byte array
+            function processCanvasToBitmap() {
+                const imageData = previewCtx.getImageData(0, 0, 128, 64);
+                const pixelData = imageData.data;
+                const bitmap = new Uint8Array(1024); // 64 rows * (128 pixels / 8 bits_per_byte) = 1024
+                
+                let byteIndex = 0;
+
+                // Iterate row by row (XBM format is row-major)
+                for (let y = 0; y < 64; y++) {
+                    // Iterate over the 16 bytes for this row
+                    for (let xByte = 0; xByte < 16; xByte++) { // 128 / 8 = 16
+                        let byte = 0;
+                        // Iterate over the 8 bits (pixels) in this byte
+                        for (let xBit = 0; xBit < 8; xBit++) {
+                            // Calculate the x pixel coordinate
+                            const x = (xByte * 8) + xBit;
+                            
+                            // Find the pixel's index in the 1D pixelData array
+                            // (y * width + x) * 4 (for RGBA)
+                            const pixelIndex = (y * 128 + x) * 4;
+                            
+                            // Get luminance
+                            const r = pixelData[pixelIndex];
+                            const g = pixelData[pixelIndex + 1];
+                            const b = pixelData[pixelIndex + 2];
+                            const luminance = (0.299 * r) + (0.587 * g) + (0.114 * b);
+                            const bit = luminance > 127 ? 1 : 0;
+                            
+                            // Set the bit in our new byte (LSB-first, as XBM expects)
+                            if (bit) {
+                                byte |= (1 << xBit);
+                            }
+                        }
+                        // Add the completed byte to the bitmap
+                        bitmap[byteIndex] = byte;
+                        byteIndex++;
+                    }
+                }
+                return bitmap;
+            }
+
+            // Helper function to draw the final 1-bit data to the preview canvas
+            function drawMonochromePreview(bitmap) {
+                const imageData = previewCtx.createImageData(128, 64);
+                const data = imageData.data;
+                let byteIndex = 0;
+
+                // Iterate row by row (to read XBM row-major format)
+                for (let y = 0; y < 64; y++) {
+                    // Iterate over the 16 bytes for this row
+                    for (let xByte = 0; xByte < 16; xByte++) {
+                        const byte = bitmap[byteIndex];
+                        // Iterate over the 8 bits (pixels) in this byte
+                        for (let xBit = 0; xBit < 8; xBit++) {
+                            // Calculate the x pixel coordinate
+                            const x = (xByte * 8) + xBit;
+                            
+                            // Get the bit for this pixel (LSB-first)
+                            const bit = (byte >> xBit) & 1;
+                            const value = bit ? 255 : 0;
+                            
+                            // Find the pixel's index in the RGBA array
+                            const pixelIndex = (y * 128 + x) * 4;
+                            
+                            // Set the pixel in the preview
+                            data[pixelIndex] = value;
+                            data[pixelIndex + 1] = value;
+                            data[pixelIndex + 2] = value;
+                            data[pixelIndex + 3] = 255;
+                        }
+                        byteIndex++;
+                    }
+                }
+                previewCtx.putImageData(imageData, 0, 0);
+            }
+
+            // --- 8. HANDLE CONNECTION ISSUES ---
+            client.on('error', (err) => {
+                console.error('Connection error:', err);
+                brokerConnected = false;
+                espOnline = false;
+                showStatusMessage("Broker Error", 'red');
+                disableAllControls();
+            });
+
+            client.on('reconnect', () => {
+                console.log('Reconnecting to broker...');
+                brokerConnected = false;
+                espOnline = false;
+                showStatusMessage("Reconnecting...", 'orange');
+            });
+
+            client.on('close', () => {
+                console.log('Disconnected from broker.');
+                brokerConnected = false;
+                espOnline = false;
+                showStatusMessage("Disconnected", 'red');
+                disableAllControls();
+            });
+        }
+    
+        // --- Encapsulate background script ---
+        function setupTechBackground() {
+            const canvas = document.getElementById('tech-background-canvas');
+            if (!canvas) {
+                console.error("Background canvas not found!");
+                return;
+            }
+            
+            // --- Start of adapted LetterGlitch code ---
+            
+            // 1. Hardcode props from user's example
+            const glitchColors = ['#2b4539', '#61dca3', '#61b3dc'];
+            const glitchSpeed = 50; // from user
+            const smooth = true; // from user
+            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$&*()-_+=/[]{};:<>.,0123456789';
+
+            // 2. Replicate refs with variables
+            let animationRef = null;
+            let letters = [];
+            let grid = { columns: 0, rows: 0 };
+            let context = canvas.getContext('2d');
+            let lastGlitchTime = Date.now();
+
+            const lettersAndSymbols = Array.from(characters);
+
+            const fontSize = 16;
+            const charWidth = 10;
+            const charHeight = 20;
+
+            // 3. Helper functions from React component
+            
+            const getRandomChar = () => {
+                return lettersAndSymbols[Math.floor(Math.random() * lettersAndSymbols.length)];
+            };
+
+            const getRandomColor = () => {
+                return glitchColors[Math.floor(Math.random() * glitchColors.length)];
+            };
+
+            const hexToRgb = hex => {
+                const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
+                hex = hex.replace(shorthandRegex, (m, r, g, b) => {
+                  return r + r + g + g + b + b;
+                });
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result
+                  ? {
+                      r: parseInt(result[1], 16),
+                      g: parseInt(result[2], 16),
+                      b: parseInt(result[3], 16)
+                    }
+                  : null;
+            };
+            
+            const colorToRgb = (colorStr) => {
+                if (colorStr.startsWith('rgb')) {
+                    const result = /rgb\((\d+), (\d+), (\d+)\)/.exec(colorStr);
+                    return result ? { r: parseInt(result[1]), g: parseInt(result[2]), b: parseInt(result[3]) } : null;
+                }
+                return hexToRgb(colorStr);
+            };
+
+            const interpolateColor = (start, end, factor) => {
+                const result = {
+                  r: Math.round(start.r + (end.r - start.r) * factor),
+                  g: Math.round(start.g + (end.g - start.g) * factor),
+                  b: Math.round(start.b + (end.b - start.b) * factor)
+                };
+                return `rgb(${result.r}, ${result.g}, ${result.b})`;
+            };
+
+            const calculateGrid = (width, height) => {
+                const columns = Math.ceil(width / charWidth);
+                const rows = Math.ceil(height / charHeight);
+                return { columns, rows };
+            };
+
+            const initializeLetters = (columns, rows) => {
+                grid = { columns, rows };
+                const totalLetters = columns * rows;
+                letters = Array.from({ length: totalLetters }, () => {
+                    const startColor = getRandomColor();
+                    return {
+                        char: getRandomChar(),
+                        color: startColor,
+                        startColor: startColor,
+                        targetColor: getRandomColor(),
+                        colorProgress: 1
+                    }
+                });
+            };
+
+            const drawLetters = () => {
+                if (!context || letters.length === 0) return;
+                const ctx = context;
+                
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.font = `${fontSize}px monospace`;
+                ctx.textBaseline = 'top';
+
+                letters.forEach((letter, index) => {
+                  const x = (index % grid.columns) * charWidth;
+                  const y = Math.floor(index / grid.columns) * charHeight;
+                  ctx.fillStyle = letter.color;
+                  ctx.fillText(letter.char, x, y);
+                });
+            };
+
+            const updateLetters = () => {
+                if (!letters || letters.length === 0) return;
+
+                const updateCount = Math.max(1, Math.floor(letters.length * 0.05));
+
+                for (let i = 0; i < updateCount; i++) {
+                  const index = Math.floor(Math.random() * letters.length);
+                  if (!letters[index]) continue;
+
+                  letters[index].char = getRandomChar();
+                  letters[index].startColor = letters[index].color;
+                  letters[index].targetColor = getRandomColor();
+
+                  if (!smooth) {
+                    letters[index].color = letters[index].targetColor;
+                    letters[index].startColor = letters[index].targetColor;
+                    letters[index].colorProgress = 1;
+                  } else {
+                    letters[index].colorProgress = 0;
+                  }
+                }
+            };
+
+            const handleSmoothTransitions = () => {
+                let needsRedraw = false;
+                letters.forEach(letter => {
+                  if (letter.colorProgress < 1) {
+                    letter.colorProgress += 0.05;
+                    if (letter.colorProgress > 1) letter.colorProgress = 1;
+
+                    const startRgb = colorToRgb(letter.startColor);
+                    const endRgb = hexToRgb(letter.targetColor);
+
+                    if (startRgb && endRgb) {
+                      letter.color = interpolateColor(startRgb, endRgb, letter.colorProgress);
+                      needsRedraw = true;
+                    } else {
+                      letter.color = letter.targetColor;
+                      letter.startColor = letter.targetColor;
+                      letter.colorProgress = 1;
+                    }
+                  }
+                });
+
+                if (needsRedraw) {
+                  drawLetters();
+                }
+            };
+
+            const animate = () => {
+                const now = Date.now();
+                if (now - lastGlitchTime >= glitchSpeed) {
+                  updateLetters();
+                  if (!smooth) {
+                    drawLetters();
+                  }
+                  lastGlitchTime = now;
+                }
+                
+                if (smooth) {
+                  handleSmoothTransitions();
+                }
+
+                animationRef = requestAnimationFrame(animate);
+            };
+            
+            const resizeCanvas = () => {
+                const dpr = window.devicePixelRatio || 1;
+                const rect = { width: window.innerWidth, height: window.innerHeight };
+
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+
+                canvas.style.width = `${rect.width}px`;
+                canvas.style.height = `${rect.height}px`;
+
+                if (context) {
+                  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+                }
+
+                const { columns, rows } = calculateGrid(rect.width, rect.height);
+                initializeLetters(columns, rows);
+                drawLetters();
+            };
+
+            context = canvas.getContext('2d');
+            if (!context) {
+                console.error("Failed to get 2D context");
+                return;
+            }
+            
+            resizeCanvas();
+            animate();
+
+            let resizeTimeout;
+            const handleResize = () => {
+              clearTimeout(resizeTimeout);
+              resizeTimeout = setTimeout(() => {
+                if (animationRef) {
+                    cancelAnimationFrame(animationRef);
+                }
+                resizeCanvas();
+                animate();
+              }, 100);
+            };
+
+            window.addEventListener('resize', handleResize);
+        }
+
+    </script>
+</body>
+</html>
